@@ -99,7 +99,7 @@ for msg in st.session_state.messages:
     with st.chat_message(role, avatar=avatar):
         st.write(msg["content"])
 
-# 메시지 입력 및 응답 생성
+    # 메시지 입력 및 응답 생성
 if user_input := st.chat_input("신야에게 말하거나 행동을 취하세요..."):
     st.chat_message("user", avatar="🗡️").write(user_input)
     st.session_state.messages.append({"role": "user", "content": user_input})
@@ -113,7 +113,7 @@ if user_input := st.chat_input("신야에게 말하거나 행동을 취하세요
     with st.chat_message("assistant", avatar="🤍"):
         try:
             response = client.chat.completions.create(
-                model="gryphe/mythomax-l2-13b",
+                model="meta-llama/llama-3.3-70b-instruct:free",
                 messages=payload,
                 temperature=0.85
             )
@@ -124,5 +124,3 @@ if user_input := st.chat_input("신야에게 말하거나 행동을 취하세요
             st.error(f"오류가 발생했습니다: {e}")
 
     check_and_compress_memory()
-
- 

@@ -76,26 +76,37 @@ if "messages" not in st.session_state or len(st.session_state.messages) == 0:
 if "long_term_memory" not in st.session_state:
     st.session_state.long_term_memory = ""
 
-# 기억 압축 요약
+# 4중 무료 모델 폴백 체인 (검증된 무료 모델 우선순위)
+FREE_CANDIDATES = [
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "qwen/qwen-2.5-7b-instruct:free",
+    "mistralai/mistral-7b-instruct:free",
+    "google/gemini-2.0-flash-lite:free"
+]
+
 def check_and_compress_memory():
     if len(st.session_state.messages) > 10:
         old_chats = st.session_state.messages[:6]
         st.session_state.messages = st.session_state.messages[6:]
         chat_text = "\n".join([f"{m['role']}: {m['content']}" for m in old_chats])
         summary_prompt = f"기존 기록:\n{st.session_state.long_term_memory}\n\n추가 대화:\n{chat_text}\n핵심 사건과 관계를 2~3줄로 요약하세요."
-        try:
-            res = client.chat.completions.create(
-                model="google/gemini-2.0-flash-lite-preview-02-05:free",
-                messages=[{"role": "user", "content": summary_prompt}]
-            )
-            st.session_state.long_term_memory = res.choices[0].message.content
-        except Exception:
-            pass
+        for m in FREE_CANDIDATES:
+            try:
+                res = client.chat.completions.create(
+                    model=m,
+                    messages=[{"role": "user", "content": summary_prompt}],
+                    timeout=15
+                )
+                if res.choices and res.choices[0].message.content:
+                    st.session_state.long_term_memory = res.choices[0].message.content
+                    break
+            except Exception:
+                continue
 
 # 이전 대화 출력
 for msg in st.session_state.messages:
     role = msg["role"]
-    avatar = "🗡️" if role == "user" else "🤍"
+    avatar = "🗡️️" if role == "user" else "🤍"
     with st.chat_message(role, avatar=avatar):
         st.write(msg["content"])
 
@@ -111,17 +122,27 @@ if user_input := st.chat_input("신야에게 말하거나 행동을 취하세요
     payload = [{"role": "system", "content": current_system}] + st.session_state.messages
 
     with st.chat_message("assistant", avatar="🤍"):
-        try:
-            response = client.chat.completions.create(
-                model="google/gemini-2.0-flash-lite-preview-02-05:free",
-                messages=payload,
-                temperature=0.85
-            )
-            reply = response.choices[0].message.content
+        reply = None
+        last_error = ""
+        for m in FREE_CANDIDATES:
+            try:
+                response = client.chat.completions.create(
+                    model=m,
+                    messages=payload,
+                    temperature=0.85,
+                    timeout=25
+                )
+                if response.choices and response.choices[0].message.content:
+                    reply = response.choices[0].message.content
+                    break
+            except Exception as e:
+                last_error = str(e)
+                continue
+
+        if reply:
             st.write(reply)
             st.session_state.messages.append({"role": "assistant", "content": reply})
-        except Exception as e:
-            st.error(f"오류가 발생했습니다: {e}")
+        else:
+            st.error(f"연결 실패: 무료 모델 서버 응답이 지연되고 있습니다. ({last_error})")
 
     check_and_compress_memory()
-

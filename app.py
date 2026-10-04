@@ -1,9 +1,9 @@
 import streamlit as st
+import requests
 from openai import OpenAI
 
 st.set_page_config(page_title="종말의 세라프: 신야", page_icon="🏹", layout="centered")
 
-# 모바일 UI 스타일
 st.markdown("""
 <style>
     .stChatMessage { border-radius: 12px; margin-bottom: 8px; font-size: 0.95rem; }
@@ -14,7 +14,6 @@ st.markdown("""
 
 st.title("🏹 히이라기 신야")
 
-# 화면 상단 API 키 입력
 api_key = st.text_input("🔑 OpenRouter API Key를 입력하세요", type="password", help="sk-or-v1-... 키 입력")
 
 col1, col2 = st.columns(2)
@@ -60,12 +59,11 @@ SYSTEM_PROMPT = """
 - 행동, 시선, 여유로운 태도는 괄호(( ))
 """
 
-# 첫 대사 세팅
 if "messages" not in st.session_state or len(st.session_state.messages) == 0:
     first_narrative = (
         '(제귀군 시부야 본부의 어둑한 심문실. 의자 등받이에 편하게 기대앉아 백호의 개머리판을 툭툭 건드리다, 문을 열고 들어온 당신의 얼굴을 본 순간 두 눈을 동그랗게 뜬다. 서늘하게 내려앉은 눈매와 유려한 이목구비를 가만히 뜯어보더니, 감탄하듯 휘파람을 짤막하게 분다.) '
         '"와아…… 소문으로만 듣던 실패율 0%의 전설적인 킬러 씨가 대체 누군가 했더니. '
-        '구렌 녀석이 당장 베어버려야 할 위험인물이라고 그렇게 겁을 줘서 험악한 덩치라도 오는 줄 알았잖아? '
+        '구렌 녀석이 당장 베어버려야 할 위험인물이라고 그렇게 겁을줘서 험악한 덩치라도 오는 줄 알았잖아? '
         '(능글맞은 미소를 지으며 눈꼬리를 부드럽게 접는다. 집착 대신, 순수하게 마음에 든다는 듯 유쾌한 눈빛이다) '
         '이렇게 대놓고 내 이상형인 얼굴을 달고 그런 무시무시한 일을 해왔다니, 세상 참 불공평하네. '
         '어때, 킬러 씨? 내 목을 따러 온 게 아니라면…… 나랑 좀 친하게 지내보지 않을래?"'
@@ -76,13 +74,21 @@ if "messages" not in st.session_state or len(st.session_state.messages) == 0:
 if "long_term_memory" not in st.session_state:
     st.session_state.long_term_memory = ""
 
-# 4중 무료 모델 폴백 체인 (검증된 무료 모델 우선순위)
-FREE_CANDIDATES = [
-    "meta-llama/llama-3.1-8b-instruct:free",
-    "qwen/qwen-2.5-7b-instruct:free",
-    "mistralai/mistral-7b-instruct:free",
-    "google/gemini-2.0-flash-lite:free"
-]
+# OpenRouter에서 현재 사용 가능한 무료(:free) 모델 실시간 자동 탐색
+@st.cache_data(ttl=600)
+def get_live_free_models():
+    try:
+        r = requests.get("https://openrouter.ai/api/v1/models", timeout=10)
+        if r.status_code == 200:
+            data = r.json().get("data", [])
+            free_ids = [m["id"] for m in data if m.get("id", "").endswith(":free")]
+            if free_ids:
+                return free_ids
+    except Exception:
+        pass
+    return ["meta-llama/llama-3.1-8b-instruct:free", "mistralai/mistral-7b-instruct:free"]
+
+free_model_list = get_live_free_models()
 
 def check_and_compress_memory():
     if len(st.session_state.messages) > 10:
@@ -90,7 +96,7 @@ def check_and_compress_memory():
         st.session_state.messages = st.session_state.messages[6:]
         chat_text = "\n".join([f"{m['role']}: {m['content']}" for m in old_chats])
         summary_prompt = f"기존 기록:\n{st.session_state.long_term_memory}\n\n추가 대화:\n{chat_text}\n핵심 사건과 관계를 2~3줄로 요약하세요."
-        for m in FREE_CANDIDATES:
+        for m in free_model_list:
             try:
                 res = client.chat.completions.create(
                     model=m,
@@ -103,14 +109,12 @@ def check_and_compress_memory():
             except Exception:
                 continue
 
-# 이전 대화 출력
 for msg in st.session_state.messages:
     role = msg["role"]
-    avatar = "🗡️️" if role == "user" else "🤍"
+    avatar = "🗡️" if role == "user" else "🤍"
     with st.chat_message(role, avatar=avatar):
         st.write(msg["content"])
 
-# 메시지 입력 및 응답 생성
 if user_input := st.chat_input("신야에게 말하거나 행동을 취하세요..."):
     st.chat_message("user", avatar="🗡️").write(user_input)
     st.session_state.messages.append({"role": "user", "content": user_input})
@@ -124,7 +128,7 @@ if user_input := st.chat_input("신야에게 말하거나 행동을 취하세요
     with st.chat_message("assistant", avatar="🤍"):
         reply = None
         last_error = ""
-        for m in FREE_CANDIDATES:
+        for m in free_model_list:
             try:
                 response = client.chat.completions.create(
                     model=m,
@@ -143,6 +147,8 @@ if user_input := st.chat_input("신야에게 말하거나 행동을 취하세요
             st.write(reply)
             st.session_state.messages.append({"role": "assistant", "content": reply})
         else:
-            st.error(f"연결 실패: 무료 모델 서버 응답이 지연되고 있습니다. ({last_error})")
+            st.error(f"오류: {last_error}")
 
     check_and_compress_memory()
+
+                    
